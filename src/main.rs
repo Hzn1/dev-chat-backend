@@ -69,21 +69,18 @@ async fn send_close_message(mut socket: WebSocket, code: u16, reason: &str) {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     /* let cors = CorsLayer::new()
     .allow_origin("http://localhost:4000".parse::<HeaderValue>().unwrap())
     .allow_methods([Method::GET])
     .allow_credentials(true)
     .allow_headers([UPGRADE]); */
 
-    #[tokio::main]
-    async fn main() -> anyhow::Result<()> {
-        let app = Router::new().route("/ws", get(websocket_handler));
+    let app = Router::new().route("/ws", get(websocket_handler));
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:4000").await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:4000").await?;
 
-        axum::serve(listener, app).await?;
+    axum::serve(listener, app).await?;
 
-        Ok(())
-    }
+    Ok(())
 }
