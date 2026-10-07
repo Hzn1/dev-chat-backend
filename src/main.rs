@@ -1,8 +1,12 @@
-use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, thread};
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    thread,
+};
 
+mod http_utils;
 mod models;
 mod storage;
-mod http_utils;
 
 enum ConnectionState {
     HttpHandshake,
@@ -30,19 +34,28 @@ fn handle_client(mut stream: TcpStream) {
                             incoming_bytes.push(*byte);
                         }
 
-                        let headers_end = incoming_bytes.windows(4).position(|window| window == b"\r\n\r\n");
+                        let headers_end = incoming_bytes
+                            .windows(4)
+                            .position(|window| window == b"\r\n\r\n");
 
                         match headers_end {
                             Some(pos) => {
-                                let message_received = String::from_utf8_lossy(&incoming_bytes[..pos]).into_owned();
+                                let message_received =
+                                    String::from_utf8_lossy(&incoming_bytes[..pos]).into_owned();
                                 // println!("{}", message_received);
                                 //incoming_bytes_count += size;
                                 // println!("Received {} bytes", incoming_bytes_count);
                                 // println!("Received message: {}", message_received);
 
-                                match http_utils::verify_if_is_a_handshake_request(&message_received) {
+                                match http_utils::verify_if_is_a_handshake_request(
+                                    &message_received,
+                                ) {
                                     true => {
-                                        let http_response = http_utils::make_handshake_http_response(message_received).into_bytes();
+                                        let http_response =
+                                            http_utils::make_handshake_http_response(
+                                                message_received,
+                                            )
+                                            .into_bytes();
                                         let r: &[u8] = &http_response[..];
                                         state = ConnectionState::WebSocketActive;
 
@@ -69,11 +82,8 @@ fn handle_client(mut stream: TcpStream) {
             ConnectionState::WebSocketActive => {
                 let mut header = [0u8; 2];
                 _ = stream.read_exact(&mut header);
-
             }
         }
-
-        
     }
 }
 
