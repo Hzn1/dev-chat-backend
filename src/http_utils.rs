@@ -145,7 +145,7 @@ mod tests {
             String::from("HTTP/1.1 101 Switching Protocols\r\n\
             Upgrade: websocket\r\n\
             Connection: Upgrade\r\n\
-            Sec-WebSocket-Accept: YjM3YTRmMmNjMDYyNGYxNjkwZjY0NjA2Y2YzODU5NDViMmJlYzRlYQ==\r\n\r\n");
+            Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
 
         assert_eq!(make_handshake_http_response(http_request), expected_response);
     }
