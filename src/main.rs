@@ -1,86 +1,84 @@
-use axum::{
-    Router,
-    extract::{
-        WebSocketUpgrade,
-        ws::{CloseFrame, Message, WebSocket},
-    },
-    response::IntoResponse,
-    routing::get,
-};
+use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, thread};
 
 mod models;
 mod storage;
+mod http_utils;
 
-async fn websocket_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_failed_upgrade(|error| println!("Error upgrading websocket: {}", error))
-        .on_upgrade(handle_socket)
-}
+fn handle_client(mut stream: TcpStream) {
+    let mut buffer = [0; 512]; // Buffer to read coming data
+    let mut incoming_bytes: Vec<u8> = Vec::new();
+    let mut incoming_bytes_count = 0;
 
-async fn handle_socket(mut socket: WebSocket) {
-    while let Some(msg) = socket.recv().await {
-        if let Ok(msg) = msg {
-            match msg {
-                Message::Text(utf8_bytes) => {
-                    println!("Text received: {}", utf8_bytes);
-                    let result = socket
-                        .send(Message::Text(
-                            format!("Echo back text: {}", utf8_bytes,).into(),
-                        ))
-                        .await;
-                    if let Err(error) = result {
-                        println!("Error sending: {}", error);
-                        send_close_message(socket, 1011, &format!("Error occured: {}", error))
-                            .await;
-                        break;
+    // Loop to keep listening for messages from the client
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(size) => {
+                println!("Buffer: {:#?}", String::from_utf8_lossy(&buffer).into_owned());
+                if size == 0 {
+                    println!("Client diconnected");
+                    break;
+                }
+                for byte in buffer[..size].iter() {
+                    incoming_bytes.push(*byte);
+                }
+
+                let headers_end = incoming_bytes.windows(4).position(|window| window == b"\r\n\r\n");
+
+                match headers_end {
+                    Some(pos) => {
+                        let message_received = String::from_utf8_lossy(&incoming_bytes[..pos]).into_owned();
+                        println!("{}", message_received);
+                        incoming_bytes_count += size;
+                        println!("Received {} bytes", incoming_bytes_count);
+                        println!("Received message: {}", message_received);
+
+                        match http_utils::verify_if_is_a_handshake_request(&message_received) {
+                            true => {
+                                let http_response = http_utils::make_handshake_http_response(message_received).into_bytes();
+                                let r: &[u8] = &http_response[..];
+
+                                _ = stream.write_all(r);
+                                continue;
+                            }
+                            false => {
+                                // Send the message received back to test connection
+                                stream.write_all(&buffer[0..size]).unwrap();
+                                continue;
+                            }
+                        }
+                    }
+                    None => {
+                        incoming_bytes_count += size;
+                        continue;
                     }
                 }
-                Message::Binary(bytes) => {
-                    println!("Received bytes of lenght: {}", bytes.len());
-                    let result = socket
-                        .send(Message::Text(
-                            format!("Received bytes of length: {}", bytes.len()).into(),
-                        ))
-                        .await;
-                    if let Err(error) = result {
-                        println!("Error sending: {}", error);
-                        send_close_message(socket, 1011, &format!("Error occured: {}", error))
-                            .await;
-                        break;
-                    }
-                }
-                _ => {}
             }
-        } else {
-            let error = msg.err().unwrap();
-            println!("Error receiving message: {:?}", error);
-            send_close_message(socket, 1011, &format!("Error occured: {}", error)).await;
-            break;
+            Err(e) => {
+                println!("Error on read the stream: {}", e);
+                break;
+            }
         }
     }
 }
 
-async fn send_close_message(mut socket: WebSocket, code: u16, reason: &str) {
-    _ = socket
-        .send(Message::Close(Some(CloseFrame {
-            code: code,
-            reason: reason.into(),
-        })))
-        .await;
-}
+fn main() -> std::io::Result<()> {
+    // Listening on localhost on port 7878
+    let listener = TcpListener::bind("127.0.0.1:7878")?;
+    println!("Server running on port 7878...");
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    /* let cors = CorsLayer::new()
-    .allow_origin("http://localhost:4000".parse::<HeaderValue>().unwrap())
-    .allow_methods([Method::GET])
-    .allow_credentials(true)
-    .allow_headers([UPGRADE]); */
-
-    let app = Router::new().route("/ws", get(websocket_handler));
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:4000").await?;
-
-    axum::serve(listener, app).await?;
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                println!("New connection accepted!");
+                thread::spawn(move || {
+                    handle_client(stream);
+                });
+            }
+            Err(e) => {
+                println!("Fail in connection: {}", e);
+            }
+        }
+    }
 
     Ok(())
 }
