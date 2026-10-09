@@ -7,6 +7,7 @@ use std::{
 mod http_utils;
 mod models;
 mod storage;
+mod websocket_utils;
 
 enum ConnectionState {
     HttpHandshake,
@@ -82,6 +83,58 @@ fn handle_client(mut stream: TcpStream) {
             ConnectionState::WebSocketActive => {
                 let mut header = [0u8; 2];
                 _ = stream.read_exact(&mut header);
+
+                let fin = (header[0] & 0b1000_0000) != 0;
+                let opcode = header[0] & 0b0000_1111;
+                let mask = (header[1] & 0b1000_0000) != 0;
+                let payload_len_indicator = header[1] & 0b0111_1111;
+
+                if opcode == 0x8 {
+                    println!("Connection with the client closed");
+                    break;
+                }
+
+                let real_payload_len = match payload_len_indicator {
+                    0..=125 => payload_len_indicator as u64,
+                    126 => {
+                        let mut len_bytes = [0u8; 2];
+                        _ = stream.read_exact(&mut len_bytes);
+                        u16::from_be_bytes(len_bytes) as u64
+                    }
+                    127 => {
+                        let mut len_bytes = [0u8; 8];
+                        _ = stream.read_exact(&mut len_bytes);
+                        u64::from_be_bytes(len_bytes)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let mask_key = if mask {
+                    let mut key = [0u8; 4];
+                    _ = stream.read_exact(&mut key);
+                    Some(key)
+                } else {
+                    None
+                };
+
+                let mut payload = vec![0u8; real_payload_len as usize];
+                _ = stream.read_exact(&mut payload);
+
+                // Decode payload running XOR with MaskKey
+                if let Some(key) = mask_key {
+                    for (i, byte) in payload.iter_mut().enumerate() {
+                        *byte ^= key[i % 4];
+                    }
+                }
+
+                let message = String::from_utf8(payload).unwrap();
+                println!("Message reaceived from client: {}", message);
+
+                if !fin {
+                    println!(
+                        "There are more chunks of data incoming from the same message, but for now it's not implemented..."
+                    );
+                }
             }
         }
     }
